@@ -1,34 +1,41 @@
-const targetUrl = 'https://megaplay.buzz/stream/s-2/143128/sub';
+import express from "express";
+import fetch from "node-fetch";
 
-async function fetchStream(request) {
-    const response = await fetch(targetUrl, {
-        method: 'GET',
-        headers: {
-            'User-Agent': 'Mozilla/5.0',
-            'Referer': 'https://megaplay.buzz/',
-            'Origin': 'https://megaplay.buzz',
-            // Add any additional headers here
+const app = express();
+
+app.get("/proxy", async (req, res) => {
+    const target = req.query.url || "https://megaplay.buzz/stream/s-2/143128/sub";
+
+    try {
+        const response = await fetch(target, {
+            method: "GET",
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Referer": "https://megaplay.buzz/",
+                "Origin": "https://megaplay.buzz",
+                "Accept": "*/*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Connection": "keep-alive",
+                "Range": req.headers.range || "bytes=0-"
+            }
+        });
+
+        // Forward status and headers to client
+        res.status(response.status);
+        for (let [key, value] of response.headers) {
+            res.setHeader(key, value);
         }
-    });
 
-    if (response.status === 410) {
-        // If 410, try to bypass by changing headers or providing alternate data
-        return new Response('Stream link expired or removed. Try again later.', { status: 410 });
+        // Stream body
+        response.body.pipe(res);
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Proxy error");
     }
+});
 
-    // If the status is not 410, pass the response body to the client
-    const contentType = response.headers.get('Content-Type');
-    const body = await response.text();
-
-    return new Response(body, {
-        status: response.status,
-        headers: {
-            'Content-Type': contentType,
-            'Cache-Control': 'no-cache', // Control caching behavior
-        },
-    });
-}
-
-addEventListener('fetch', event => {
-    event.respondWith(fetchStream(event.request));
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+    console.log(`Proxy running on port ${PORT}`);
 });
