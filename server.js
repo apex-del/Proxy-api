@@ -27,18 +27,19 @@ app.get("/proxy", async (req, res) => {
         if (contentType.includes("text/html")) {
             let body = await response.text();
 
-            // Force HTTPS and proxy everything from megaplay
+            // 1. Force HTTPS for everything from megaplay
+            body = body.replace(/http:\/\/megaplay\.buzz/gi, "https://megaplay.buzz");
+            body = body.replace(/\/\/megaplay\.buzz/gi, "https://megaplay.buzz");
+
+            // 2. Route all HTTPS megaplay URLs through our proxy
             body = body.replace(
-                /https?:\/\/megaplay\.buzz/gi,
-                `${req.protocol}://${req.get("host")}/proxy?url=https://megaplay.buzz`
-            );
-            body = body.replace(
-                /\/\/megaplay\.buzz/gi,
+                /https:\/\/megaplay\.buzz/gi,
                 `${req.protocol}://${req.get("host")}/proxy?url=https://megaplay.buzz`
             );
 
             res.send(body);
         } else {
+            // For non-HTML (JS, CSS, video files), just stream
             response.body.pipe(res);
         }
     } catch (err) {
