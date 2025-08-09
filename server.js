@@ -7,7 +7,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-// Universal proxy route
 app.get("/proxy", async (req, res) => {
     const target = req.query.url;
     if (!target) {
@@ -28,15 +27,18 @@ app.get("/proxy", async (req, res) => {
         if (contentType.includes("text/html")) {
             let body = await response.text();
 
-            // Rewrite ALL megaplay.buzz asset URLs to go through proxy
+            // Force HTTPS and proxy everything from megaplay
             body = body.replace(
-                /https:\/\/megaplay\.buzz/gi,
+                /https?:\/\/megaplay\.buzz/gi,
+                `${req.protocol}://${req.get("host")}/proxy?url=https://megaplay.buzz`
+            );
+            body = body.replace(
+                /\/\/megaplay\.buzz/gi,
                 `${req.protocol}://${req.get("host")}/proxy?url=https://megaplay.buzz`
             );
 
             res.send(body);
         } else {
-            // Not HTML (JS, CSS, video, etc.) — just stream it directly
             response.body.pipe(res);
         }
     } catch (err) {
@@ -45,5 +47,5 @@ app.get("/proxy", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Proxy server running on port ${PORT}`);
+    console.log(`Proxy running on port ${PORT}`);
 });
