@@ -1,48 +1,66 @@
-import express from 'express';
-import fetch from 'node-fetch';
-import path from 'path';
+import express from "express";
+import fetch from "node-fetch";
+import cheerio from "cheerio";
+import url from "url";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const mimeTypes = {
-  '.js': 'application/javascript',
-  '.css': 'text/css',
-  '.m3u8': 'application/vnd.apple.mpegurl',
-  '.mp4': 'video/mp4',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.json': 'application/json',
-};
-
-app.get('/proxy', async (req, res) => {
-  const targetUrl = req.query.url;
-  if (!targetUrl) return res.status(400).send('Missing url param');
+// Main proxy route
+app.get("/proxy", async (req, res) => {
+  const target = req.query.url;
+  if (!target) return res.status(400).send("Missing url parameter");
 
   try {
-    const response = await fetch(targetUrl, {
-      headers: {
-        'Referer': 'https://megaplay.buzz/',
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
-      },
+    const r = await fetch(target, {
+      headers: { "User-Agent": req.get("User-Agent") || "Mozilla/5.0" }
     });
 
-    // Get file extension to set correct Content-Type
-    const ext = path.extname(targetUrl).toLowerCase();
-    const contentType = mimeTypes[ext] || response.headers.get('content-type') || 'application/octet-stream';
-    res.setHeader('Content-Type', contentType);
+    // Clone headers
+    const contentType = r.headers.get("content-type") || "";
 
-    // Stream the data
-    response.body.pipe(res);
+    // If HTML, rewrite asset URLs
+    if (contentType.includes("text/html")) {
+      let html = await r.text();
+      const $ = cheerio.load(html);
+
+      // Rewrite <script>, <link>, <img>, <video>, <source>, etc.
+      $("script[src], link[href], img[src], video[src], source[src]").each((i, el) => {
+        const attr = el.name === "link" ? "href" : "src";
+        const orig = $(el).attr(attr);
+        if (orig && !orig.startsWith("data:")) {
+          const absUrl = new URL(orig, target).href;
+          $(el).attr(attr, `/proxy?url=${encodeURIComponent(absUrl)}`);
+        }
+      });
+
+      // Rewrite <iframe>
+      $("iframe[src]").each((i, el) => {
+        const orig = $(el).attr("src");
+        if (orig && !orig.startsWith("data:")) {
+          const absUrl = new URL(orig, target).href;
+          $(el).attr("src", `/proxy?url=${encodeURIComponent(absUrl)}`);
+        }
+      });
+
+      res.set("Content-Type", "text/html");
+      return res.send($.html());
+    }
+
+    // For non-HTML: pipe raw content
+    res.set("Content-Type", contentType);
+    r.body.pipe(res);
+
   } catch (err) {
     console.error(err);
-    res.status(500).send('Proxy error');
+    res.status(500).send("Proxy error: " + err.message);
   }
 });
 
+app.get("/", (req, res) => {
+  res.send(`<h2>Megaplay Proxy Running</h2><p>Use <code>/proxy?url=...</code> to load content.</p>`);
+});
+
 app.listen(PORT, () => {
-  console.log(`Proxy running on http://localhost:${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
