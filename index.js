@@ -1,64 +1,55 @@
-import express from "express";
-import fetch from "node-fetch";
-import cheerio from "cheerio";
-import url from "url";
+import express from 'express';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Main proxy route
-app.get("/proxy", async (req, res) => {
-  const target = req.query.url;
-  if (!target) return res.status(400).send("Missing url parameter");
-
+// Proxy route
+app.get('/proxy', async (req, res) => {
   try {
-    const r = await fetch(target, {
-      headers: { "User-Agent": req.get("User-Agent") || "Mozilla/5.0" }
-    });
-
-    // Clone headers
-    const contentType = r.headers.get("content-type") || "";
-
-    // If HTML, rewrite asset URLs
-    if (contentType.includes("text/html")) {
-      let html = await r.text();
-      const $ = cheerio.load(html);
-
-      // Rewrite <script>, <link>, <img>, <video>, <source>, etc.
-      $("script[src], link[href], img[src], video[src], source[src]").each((i, el) => {
-        const attr = el.name === "link" ? "href" : "src";
-        const orig = $(el).attr(attr);
-        if (orig && !orig.startsWith("data:")) {
-          const absUrl = new URL(orig, target).href;
-          $(el).attr(attr, `/proxy?url=${encodeURIComponent(absUrl)}`);
-        }
-      });
-
-      // Rewrite <iframe>
-      $("iframe[src]").each((i, el) => {
-        const orig = $(el).attr("src");
-        if (orig && !orig.startsWith("data:")) {
-          const absUrl = new URL(orig, target).href;
-          $(el).attr("src", `/proxy?url=${encodeURIComponent(absUrl)}`);
-        }
-      });
-
-      res.set("Content-Type", "text/html");
-      return res.send($.html());
+    const url = req.query.url;
+    if (!url) {
+      return res.status(400).send('Missing URL');
     }
 
-    // For non-HTML: pipe raw content
-    res.set("Content-Type", contentType);
-    r.body.pipe(res);
+    // Fetch the target page (server-side bypasses browser restrictions)
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115 Safari/537.36'
+      }
+    });
 
+    // Load HTML and keep iframe as-is
+    const $ = cheerio.load(response.data);
+    const iframeSrc = $('iframe').attr('src');
+
+    if (!iframeSrc) {
+      return res.status(404).send('Iframe not found');
+    }
+
+    // Serve HTML page with the iframe
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>MegaPlay Proxy</title>
+          <meta charset="UTF-8" />
+          <style>
+            body { margin: 0; padding: 0; }
+            iframe { width: 100vw; height: 100vh; border: none; }
+          </style>
+        </head>
+        <body>
+          <iframe src="${iframeSrc}" allowfullscreen></iframe>
+        </body>
+      </html>
+    `);
   } catch (err) {
-    console.error(err);
-    res.status(500).send("Proxy error: " + err.message);
+    console.error(err.message);
+    res.status(500).send('Error fetching content');
   }
-});
-
-app.get("/", (req, res) => {
-  res.send(`<h2>Megaplay Proxy Running</h2><p>Use <code>/proxy?url=...</code> to load content.</p>`);
 });
 
 app.listen(PORT, () => {
